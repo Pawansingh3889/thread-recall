@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "thread-recall"
+version = "0.1.0"
+description = "Governed, on-prem conversation memory for AI agents: per-thread history and semantic recall, with optional PII masking on write and tamper-evident audit. Zero-dependency SQLite by default."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Pawan Singh Kapkoti" }]
+keywords = [
+    "ai",
+    "agents",
+    "memory",
+    "conversation",
+    "semantic-search",
+    "embeddings",
+    "sqlite",
+    "pgvector",
+    "on-prem",
+    "governance",
+    "pii",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []   # SQLite backend is pure stdlib
+
+[project.optional-dependencies]
+postgres = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1", "pgvector>=0.2"]
+mask = ["pii-veil>=0.1"]            # PII masking on write
+audit = ["agent-blackbox>=0.1"]     # tamper-evident write audit
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[project.scripts]
+thread-recall = "thread_recall.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Pawansingh3889/thread-recall"
+Repository = "https://github.com/Pawansingh3889/thread-recall"
+"Governed Agent Stack" = "https://github.com/Pawansingh3889/governed-agent-stack"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thread_recall"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
