@@ -41,10 +41,12 @@ dependencies = []   # SQLite backend is pure stdlib
 postgres = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1", "pgvector>=0.2"]
 mask = ["pii-veil>=0.1"]            # PII masking on write
 audit = ["agent-blackbox>=0.1"]     # tamper-evident write audit
+mcp = ["fastmcp>=2.0"]              # expose remember/recall as MCP tools
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]
 thread-recall = "thread_recall.cli:main"
+thread-recall-mcp = "thread_recall.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/Pawansingh3889/thread-recall"
