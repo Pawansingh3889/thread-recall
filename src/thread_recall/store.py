@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 
@@ -67,8 +68,11 @@ class Memory:
 
     def __init__(self, path: str = ":memory:", *, mask: bool = False,
                  audit: bool = False, audit_db: str = "logs/recall.db") -> None:
-        self._conn = sqlite3.connect(path)
+        # check_same_thread=False + a lock so the store is usable from a server
+        # (e.g. the MCP server) that dispatches calls across worker threads.
+        self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
         self._init_db()
         self._veil = _make_veil() if mask else None
         self._ledger = _make_ledger(audit_db) if audit else None
@@ -111,12 +115,13 @@ class Memory:
                 pass
         emb = json.dumps([float(x) for x in embedding]) if embedding else None
         ts = time.time()
-        cur = self._conn.execute(
-            "INSERT INTO memories (thread_id, ts, role, content, metadata, embedding)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (thread_id, ts, role, content, json.dumps(metadata) if metadata else None, emb),
-        )
-        self._conn.commit()
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO memories (thread_id, ts, role, content, metadata, embedding)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (thread_id, ts, role, content, json.dumps(metadata) if metadata else None, emb),
+            )
+            self._conn.commit()
         if self._ledger is not None:
             try:
                 self._ledger.record(
@@ -129,26 +134,29 @@ class Memory:
 
     def forget(self, thread_id: str) -> int:
         """Delete a thread's memory. Returns rows removed."""
-        cur = self._conn.execute("DELETE FROM memories WHERE thread_id = ?", (thread_id,))
-        self._conn.commit()
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM memories WHERE thread_id = ?", (thread_id,))
+            self._conn.commit()
         return cur.rowcount
 
     # -- read ---------------------------------------------------------------
 
     def recent(self, thread_id: str, k: int = 10) -> list[Turn]:
         """The last k turns of a thread, in chronological order."""
-        rows = self._conn.execute(
-            "SELECT * FROM memories WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
-            (thread_id, k),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM memories WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
+                (thread_id, k),
+            ).fetchall()
         return [_row_to_turn(r) for r in reversed(rows)]
 
     def search(self, thread_id: str, query_embedding: list[float], k: int = 5) -> list[Turn]:
         """Semantic recall: the k turns whose embeddings are closest to the query."""
-        rows = self._conn.execute(
-            "SELECT * FROM memories WHERE thread_id = ? AND embedding IS NOT NULL",
-            (thread_id,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM memories WHERE thread_id = ? AND embedding IS NOT NULL",
+                (thread_id,),
+            ).fetchall()
         scored: list[Turn] = []
         for r in rows:
             turn = _row_to_turn(r)
@@ -158,11 +166,12 @@ class Memory:
         return scored[:k]
 
     def count(self, thread_id: str | None = None) -> int:
-        if thread_id is None:
-            return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-        return self._conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE thread_id = ?", (thread_id,)
-        ).fetchone()[0]
+        with self._lock:
+            if thread_id is None:
+                return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM memories WHERE thread_id = ?", (thread_id,)
+            ).fetchone()[0]
 
     def close(self) -> None:
         self._conn.close()
