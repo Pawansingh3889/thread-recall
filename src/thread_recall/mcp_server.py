@@ -4,13 +4,21 @@ An agent calls ``remember`` to store a turn and ``recall`` to retrieve relevant
 past turns, instead of holding unbounded raw history in its context. The
 governance is on the write side: PII is masked before anything is stored (via
 pii-veil when installed), so the long-term memory never retains raw PII, and
-every write can be mirrored into a tamper-evident audit ledger. Memory is
-thread-scoped, so one thread never recalls another's turns.
+every write can be mirrored into a tamper-evident audit ledger.
+
+Isolation: every thread is namespaced by an ``actor`` -- the authenticated
+principal. A caller can only reach threads under its own actor, so a raw
+``thread_id`` is no longer a key into anyone else's memory (no cross-thread
+read, poison, or mass-delete). The governed gateway sets ``actor`` from the
+caller's token and does not let the client override it; standalone, set
+``THREAD_RECALL_ACTOR`` (or pass ``actor``), else all callers share one
+namespace. The caller always sees its own plain ``thread_id`` back.
 
 Configuration (environment):
   THREAD_RECALL_DB        SQLite path for the store (default: logs/recall-mem.db)
   THREAD_RECALL_MASK      mask PII on write (default on; set 0 to disable)
   THREAD_RECALL_AUDIT     mirror writes to agent-blackbox (default off; set 1 on)
+  THREAD_RECALL_ACTOR     default principal when no actor is passed (default: shared)
   THREAD_RECALL_EMBED     hashing (default) | ollama
   THREAD_RECALL_OLLAMA_*  HOST / MODEL overrides for the Ollama embedder
 """
@@ -29,6 +37,27 @@ from thread_recall.store import Memory
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _ON = {"1", "true", "yes", "on"}
+_SEP = "\x1f"  # unit separator: partitions the store by actor, unseen by callers
+
+
+def _principal(actor: str | None) -> str:
+    """The authenticated identity a thread belongs to. The gateway supplies it."""
+    return (actor or os.environ.get("THREAD_RECALL_ACTOR", "shared")).strip() or "shared"
+
+
+def _key(actor: str | None, thread_id: str) -> str:
+    """Namespace a thread by its actor so ids cannot collide across principals."""
+    return f"{_principal(actor)}{_SEP}{thread_id}"
+
+
+def _plain(namespaced: str) -> str:
+    """Strip the actor namespace so the caller sees the thread_id it passed in."""
+    return namespaced.split(_SEP, 1)[1] if _SEP in namespaced else namespaced
+
+
+def _view(turn: dict) -> dict:
+    turn["thread_id"] = _plain(turn.get("thread_id", ""))
+    return turn
 
 
 def _hash_embed(text: str, dim: int = 256) -> list[float]:
@@ -70,45 +99,54 @@ _mem = _build_memory()
 
 
 @mcp.tool
-def remember(thread_id: str, content: str, role: str = "user") -> dict[str, Any]:
+def remember(thread_id: str, content: str, role: str = "user",
+             actor: str | None = None) -> dict[str, Any]:
     """Store one turn of a thread's memory. PII is masked before storage.
 
     Args:
-        thread_id: The conversation/thread this turn belongs to (the access scope).
+        thread_id: The conversation/thread this turn belongs to.
         content: The text to remember. Masked on write if masking is enabled.
         role: Who said it (user / assistant / system).
+        actor: Authenticated principal owning the thread. Set by the gateway;
+            do not rely on client-supplied values for isolation.
 
     Returns:
         The stored turn's id. The content held in memory is the masked form.
     """
-    turn_id = _mem.remember(thread_id, role, content, embedding=_embed(content))
+    turn_id = _mem.remember(_key(actor, thread_id), role, content, embedding=_embed(content))
     return {"id": turn_id, "thread_id": thread_id, "stored": True}
 
 
 @mcp.tool
-def recall(thread_id: str, query: str, k: int = 5) -> dict[str, Any]:
+def recall(thread_id: str, query: str, k: int = 5,
+           actor: str | None = None) -> dict[str, Any]:
     """Recall the turns most relevant to a query, scoped to one thread.
 
-    Semantic nearest-neighbour over the thread's masked memory. Only this
-    thread's turns are searched; nothing leaks across threads.
+    Semantic nearest-neighbour over the actor's own thread. Only this actor's
+    copy of the thread is searched; another principal's memory is unreachable.
     """
-    hits = _mem.search(thread_id, _embed(query), k)
+    key = _key(actor, thread_id)
+    hits = _mem.search(key, _embed(query), k)
     if not hits:  # nothing embedded yet -> fall back to recency
-        hits = _mem.recent(thread_id, k)
-    return {"count": len(hits), "results": [t.as_dict() for t in hits]}
+        hits = _mem.recent(key, k)
+    return {"count": len(hits), "results": [_view(t.as_dict()) for t in hits]}
 
 
 @mcp.tool
-def recent(thread_id: str, k: int = 10) -> dict[str, Any]:
-    """The last k turns of a thread, in chronological order."""
-    hits = _mem.recent(thread_id, k)
-    return {"count": len(hits), "results": [t.as_dict() for t in hits]}
+def recent(thread_id: str, k: int = 10, actor: str | None = None) -> dict[str, Any]:
+    """The last k turns of the actor's thread, in chronological order."""
+    hits = _mem.recent(_key(actor, thread_id), k)
+    return {"count": len(hits), "results": [_view(t.as_dict()) for t in hits]}
 
 
 @mcp.tool
-def forget(thread_id: str) -> dict[str, Any]:
-    """Delete a thread's entire memory. Returns the number of turns removed."""
-    return {"removed": _mem.forget(thread_id), "thread_id": thread_id}
+def forget(thread_id: str, actor: str | None = None) -> dict[str, Any]:
+    """Delete the actor's copy of a thread. Returns the number of turns removed.
+
+    Only the calling principal's namespace is touched; a caller cannot wipe
+    another actor's thread even by naming the same thread_id.
+    """
+    return {"removed": _mem.forget(_key(actor, thread_id)), "thread_id": thread_id}
 
 
 def main() -> None:
