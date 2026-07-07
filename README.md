@@ -1,5 +1,7 @@
 # thread-recall
 
+[![PyPI](https://img.shields.io/pypi/v/thread-recall)](https://pypi.org/project/thread-recall/) [![Downloads](https://static.pepy.tech/badge/thread-recall)](https://pepy.tech/projects/thread-recall)
+
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
