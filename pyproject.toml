@@ -40,7 +40,8 @@ dependencies = []   # SQLite backend is pure stdlib
 [project.optional-dependencies]
 postgres = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1", "pgvector>=0.2"]
 mask = ["pii-veil>=0.1"]            # PII masking on write
-audit = ["agent-blackbox>=0.1"]     # tamper-evident write audit
+# audit extra returns when the audit-log package lands on PyPI (its
+# name is being settled); the lazy import picks up a GitHub install meanwhile
 mcp = ["fastmcp>=2.0"]              # expose remember/recall as MCP tools
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
