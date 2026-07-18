@@ -98,7 +98,7 @@ mcp = FastMCP("thread-recall")
 _mem = _build_memory()
 
 
-@mcp.tool
+@mcp.tool()
 def remember(thread_id: str, content: str, role: str = "user",
              actor: str | None = None) -> dict[str, Any]:
     """Store one turn of a thread's memory. PII is masked before storage.
@@ -117,7 +117,7 @@ def remember(thread_id: str, content: str, role: str = "user",
     return {"id": turn_id, "thread_id": thread_id, "stored": True}
 
 
-@mcp.tool
+@mcp.tool()
 def recall(thread_id: str, query: str, k: int = 5,
            actor: str | None = None) -> dict[str, Any]:
     """Recall the turns most relevant to a query, scoped to one thread.
@@ -132,14 +132,14 @@ def recall(thread_id: str, query: str, k: int = 5,
     return {"count": len(hits), "results": [_view(t.as_dict()) for t in hits]}
 
 
-@mcp.tool
+@mcp.tool()
 def recent(thread_id: str, k: int = 10, actor: str | None = None) -> dict[str, Any]:
     """The last k turns of the actor's thread, in chronological order."""
     hits = _mem.recent(_key(actor, thread_id), k)
     return {"count": len(hits), "results": [_view(t.as_dict()) for t in hits]}
 
 
-@mcp.tool
+@mcp.tool()
 def forget(thread_id: str, actor: str | None = None) -> dict[str, Any]:
     """Delete the actor's copy of a thread. Returns the number of turns removed.
 
