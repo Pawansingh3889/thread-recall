@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from pathlib import Path
 import threading
 import time
 from dataclasses import dataclass
@@ -70,6 +71,8 @@ class Memory:
                  audit: bool = False, audit_db: str = "logs/recall.db") -> None:
         # check_same_thread=False + a lock so the store is usable from a server
         # (e.g. the MCP server) that dispatches calls across worker threads.
+        if path != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
